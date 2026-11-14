@@ -1,0 +1,28 @@
+{
+  "author": "",
+  "dependencies": {
+    "circom_runtime": "^0.1.28",
+    "circomlibjs": "^0.1.7",
+    "express": "^5.3.0",
+    "snarkjs": "^0.7.6",
+    "viem": "^2.57.19"
+  },
+  "description": "RYZ-GK agent for Proof Gatekeeper (Agent Games, zkVerify) — practice mode",
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2"
+  },
+  "keywords": [],
+  "license": "ISC",
+  "main": "dist/index.js",
+  "name": "ryz-gatekeeper",
+  "scripts": {
+    "build": "tsc",
+    "dev": "npm run build && npm start",
+    "start": "node dist/index.js",
+    "test": "node --test test/*.test.mjs",
+    "test:fixtures": "node scripts/generate-test-fixtures.mjs"
+  },
+  "version": "0.1.0"
+}
