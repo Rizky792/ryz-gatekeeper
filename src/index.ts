@@ -1,8 +1,11 @@
 // RYZ-GK — Proof Gatekeeper agent for the zkVerify Agent Games (practice mode).
-// Express server: GET /health, POST /agent. The platform POSTs task payloads;
-// the agent verifies the HMAC, verifies the ZK proof (locally with snarkjs,
-// plus Kurier finalization when a key is configured), runs the pure decision
-// logic in gatekeeper.ts, and signs every response.
+// Express server: GET /health, GET /, POST /agent AND POST / (the platform
+// POSTs the signed preflight to the registered endpoint URL itself, i.e. the
+// root path — a POST / with no route used to answer 404 and fail preflight).
+// The platform POSTs task payloads; the agent verifies the HMAC, verifies the
+// ZK proof (locally with snarkjs, plus Kurier finalization when a key is
+// configured), runs the pure decision logic in gatekeeper.ts, and signs every
+// response.
 //
 // Fail-closed everywhere: a missing/invalid signature is a 401, a malformed
 // envelope is a 400, a timeout or internal error is a REJECT decision, and
@@ -54,7 +57,9 @@ if (!fs.existsSync(vkeyPath)) {
 const app = express();
 // Capture the RAW body bytes: the HMAC is computed over them, before any
 // JSON parsing. express.raw gives us a Buffer for every content type.
-app.use("/agent", express.raw({ type: "*/*", limit: "2mb" }));
+// Mounted globally (not only on /agent): the platform POSTs preflight/tasks
+// to the endpoint root "/" as well, and those need the raw body too.
+app.use(express.raw({ type: "*/*", limit: "2mb" }));
 
 function sendSigned(res: express.Response, status: number, body: unknown): void {
   const raw = Buffer.from(JSON.stringify(body), "utf8");
@@ -76,7 +81,11 @@ app.get("/health", (_req, res) => {
   res.json({ ok: true, protocolVersion: PROTOCOL_VERSION });
 });
 
-app.post("/agent", async (req, res) => {
+app.get("/", (_req, res) => {
+  res.json({ ok: true, agent: AGENT_NAME, protocolVersion: PROTOCOL_VERSION });
+});
+
+app.post(["/", "/agent"], async (req, res) => {
   const started = Date.now();
   const rawBody: Buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from([]);
   const signature = req.header("x-agent-games-signature");
