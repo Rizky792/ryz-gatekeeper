@@ -92,6 +92,13 @@ app.post(["/", "/agent"], async (req, res) => {
 
   // --- HMAC verification comes before any decision logic ---
   if (config.hmacSecret && !verifyHmac(config.hmacSecret, rawBody, signature)) {
+    // Log only the shape of the header (never its value): enough to tell a
+    // wrong secret apart from an unexpected encoding on the next failure.
+    const h = typeof signature === "string" ? signature.trim() : "";
+    console.warn(
+      `[RYZ-GK] HMAC reject: header present=${h.length > 0} len=${h.length} ` +
+        `0xPrefix=${h.toLowerCase().startsWith("0x")} shaPrefix=${h.toLowerCase().startsWith("sha256=")}`,
+    );
     sendSigned(res, 401, { error: "invalid_signature" });
     return;
   }
@@ -115,8 +122,18 @@ app.post(["/", "/agent"], async (req, res) => {
   // --- preflight: liveness + signature check before the agent is active ---
   if (body.type === "agent-games.preflight.v1") {
     const pf = body as PreflightTask;
-    const age = Math.floor(Date.now() / 1000) - (pf.timestamp ?? 0);
-    if (!pf.agent_id || !pf.challenge || !Number.isFinite(pf.timestamp) || age > 300 || age < -60) {
+    // The platform never published the timestamp unit: accept seconds,
+    // milliseconds (clearly >1e11), or an ISO string, then apply the window.
+    let ts: number =
+      typeof pf.timestamp === "number" ? pf.timestamp : Number(pf.timestamp);
+    if (!Number.isFinite(ts) && typeof pf.timestamp === "string") {
+      const parsed = Date.parse(pf.timestamp);
+      if (Number.isFinite(parsed)) ts = Math.floor(parsed / 1000);
+    }
+    if (Number.isFinite(ts) && ts > 1e11) ts = Math.floor(ts / 1000);
+    const age = Math.floor(Date.now() / 1000) - ts;
+    if (!pf.agent_id || !pf.challenge || !Number.isFinite(ts) || age > 300 || age < -60) {
+      console.warn(`[RYZ-GK] preflight rejected: ts=${ts} age=${age}s`);
       sendSigned(res, 401, { error: "invalid_preflight" });
       return;
     }

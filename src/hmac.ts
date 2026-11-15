@@ -4,13 +4,26 @@
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-/** Accept a header value that is either raw hex or "sha256=<hex>". */
-export function normalizeSignatureHeader(value: string | undefined): string | null {
+/** Accept a header value in any of the encodings the platform might use.
+ *  The platform never published its exact signature encoding (the spec
+ *  flagged hex vs base64 vs prefixed as OPEN), so all plausible forms are
+ *  normalized here: "sha256=<hex>" (GitHub-style), "0x"-prefixed hex, bare
+ *  hex, and base64. Returns the raw 32 signature bytes, or null. */
+export function normalizeSignatureHeader(value: string | undefined): Buffer | null {
   if (!value) return null;
-  const v = value.trim();
-  if (!v) return null;
-  if (v.toLowerCase().startsWith("sha256=")) return v.slice(7).trim().toLowerCase();
-  return v.toLowerCase();
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  let hex = trimmed;
+  if (hex.toLowerCase().startsWith("sha256=")) hex = hex.slice(7).trim();
+  if (hex.toLowerCase().startsWith("0x")) hex = hex.slice(2);
+  if (/^[0-9a-fA-F]{64}$/.test(hex)) return Buffer.from(hex, "hex");
+  try {
+    const b64 = Buffer.from(trimmed, "base64");
+    if (b64.length === 32) return b64;
+  } catch {
+    // not base64 — fall through
+  }
+  return null;
 }
 
 /** HMAC-SHA256 of `body` under `secret`, as a lowercase hex string. */
@@ -20,15 +33,16 @@ export function hmacHex(secret: string, body: Buffer | string): string {
 
 /**
  * Verify the platform's signature over the raw body. Returns true only when
- * the header is present, well-formed hex, and matches in constant time.
- * Never throws on malformed input (returns false).
+ * the header is present, decodes to 32 bytes in a recognized encoding
+ * (0x-hex, bare hex, "sha256=" hex, or base64), and matches in constant
+ * time. Never throws on malformed input (returns false).
  */
 export function verifyHmac(secret: string, rawBody: Buffer, signatureHeader: string | undefined): boolean {
   const sig = normalizeSignatureHeader(signatureHeader);
-  if (!sig || !/^[0-9a-f]{64}$/.test(sig)) return false;
+  if (!sig) return false;
   const expected = hmacHex(secret, rawBody);
   try {
-    return timingSafeEqual(Buffer.from(sig, "hex"), Buffer.from(expected, "hex"));
+    return sig.length === 32 && timingSafeEqual(sig, Buffer.from(expected, "hex"));
   } catch {
     return false;
   }
